@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const distDir = path.join(root, "dist");
 const packageDir = path.join(distDir, "xiaohongshu-summarizer");
-const zipPath = path.join(distDir, "xiaohongshu-summarizer.zip");
+const zipPath = path.join(distDir, "content-link-summarizer.zip");
 
 const files = [
   "manifest.json",

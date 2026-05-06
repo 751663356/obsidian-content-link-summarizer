@@ -6,26 +6,35 @@
 
 ## 小白安装
 
-macOS 用户可以用安装脚本把插件放进 Obsidian 仓库：
+推荐直接下载插件包，不用命令行。
 
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/751663356/obsidian-content-link-summarizer/main/install.sh)"
+1. 打开 [GitHub Releases](https://github.com/751663356/obsidian-content-link-summarizer/releases/latest)。
+2. 下载 `content-link-summarizer.zip`，不要下载 `Source code`。
+3. 解压后得到 `xiaohongshu-summarizer` 文件夹。
+4. 把这个文件夹放进你的 Obsidian 仓库：
+
+```text
+你的仓库/.obsidian/plugins/xiaohongshu-summarizer
 ```
 
-Windows 用户用 PowerShell 运行：
+如果看不到 `.obsidian` 文件夹，需要先在系统里显示隐藏文件。
 
-```powershell
-powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/751663356/obsidian-content-link-summarizer/main/install.ps1 | iex"
-```
+然后打开 Obsidian：
 
-安装脚本只负责安装插件本体。启用插件后，再到插件设置页点击：
+1. 进入 `设置 -> 第三方插件`。
+2. 关闭安全模式。
+3. 启用 `内容链接总结`。
+
+启用插件后，再到插件设置页点击：
 
 1. `一键安装`：准备本地依赖。
 2. `下载 small`：下载本地 Whisper 转录模型。
 3. 在 Chrome 登录小红书或 B 站。
 4. `检查登录态`：确认插件可以临时读取本机浏览器登录态。
 
-也可以手动把插件文件夹放到 Obsidian 仓库的 `.obsidian/plugins/xiaohongshu-summarizer`。
+也可以直接下载最新插件包：
+
+[下载 content-link-summarizer.zip](https://github.com/751663356/obsidian-content-link-summarizer/releases/latest/download/content-link-summarizer.zip)
 
 ## 日常使用
 
@@ -118,6 +127,20 @@ python -m venv .venv
 winget install --id OpenJS.NodeJS.LTS --exact
 winget install --id Gyan.FFmpeg --exact
 winget install --id UB-Mannheim.TesseractOCR --exact
+```
+
+也可以用脚本安装插件本体：
+
+macOS：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/751663356/obsidian-content-link-summarizer/main/install.sh)"
+```
+
+Windows：
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/751663356/obsidian-content-link-summarizer/main/install.ps1 | iex"
 ```
 
 ## 免责声明
