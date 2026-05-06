@@ -1,0 +1,4 @@
+yt-dlp
+rapidocr_onnxruntime
+pillow
+whisper.cpp-cli

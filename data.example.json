@@ -10,7 +10,7 @@
   "visionModel": "",
   "useVisionModel": true,
   "transcriptionModel": "",
-  "localWhisperModelPath": "models/ggml-large-v3.bin",
+  "localWhisperModelPath": "models/ggml-small.bin",
   "noteCategories": [
     "技术与工具",
     "面试与求职",
@@ -23,6 +23,5 @@
     "未分类"
   ],
   "tryBrowserCookies": true,
-  "downloadVideo": true,
-  "batchQueue": []
+  "downloadVideo": true
 }

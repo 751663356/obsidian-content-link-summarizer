@@ -10,6 +10,7 @@ const input = JSON.parse(await readStdin());
 const warnings = [];
 const execFileAsync = promisify(execFile);
 const pluginDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const IS_WINDOWS = process.platform === "win32";
 const DEFAULT_NOTE_CATEGORIES = [
   "技术与工具",
   "面试与求职",
@@ -42,7 +43,7 @@ async function importUrl(options) {
   let transcript = "";
   let transcriptSource = "";
   let mediaPath = "";
-  let archivedMediaPath = "";
+  try {
 
   const subtitle = await extractBestSubtitle(info).catch((error) => {
     warnings.push(`字幕提取失败：${error.message}`);
@@ -52,21 +53,17 @@ async function importUrl(options) {
     transcript = subtitle.text;
     transcriptSource = subtitle.source;
   } else {
-    warnings.push("未找到可用字幕，正在改用本地 Whisper 转写音频。");
+    warnings.push("未找到可用字幕，正在改用本地 Whisper 转录音频。");
     mediaPath = await downloadAudio(extracted.webpageUrl || options.url, options);
     transcript = await transcribeWithLocalWhisper(mediaPath, options);
-    transcriptSource = "本地 Whisper 转写";
-    archivedMediaPath = await archiveMedia(mediaPath, options, extracted).catch((error) => {
-      warnings.push(`媒体归档失败：${error.message}`);
-      return "";
-    });
+    transcriptSource = "本地 Whisper 转录";
   }
 
   const sourceText = [
     `标题：${extracted.title}`,
     extracted.uploader ? `UP 主：${extracted.uploader}` : "",
     extracted.description ? `简介：${extracted.description}` : "",
-    transcript ? `字幕/转写来源：${transcriptSource}\n${transcript}` : ""
+    transcript ? `字幕/转录来源：${transcriptSource}\n${transcript}` : ""
   ].filter(Boolean).join("\n\n");
 
   const summary = hasSummaryChatConfig(options) && sourceText.trim()
@@ -85,7 +82,6 @@ async function importUrl(options) {
     summary,
     transcript,
     transcriptSource,
-    archivedMediaPath,
     mediaPath
   });
 
@@ -93,6 +89,9 @@ async function importUrl(options) {
     notePath,
     title: extracted.title || "B站视频"
   };
+  } finally {
+    await cleanupTempMedia(mediaPath);
+  }
 }
 
 async function getVideoInfo(url, options) {
@@ -253,7 +252,7 @@ function cleanSubtitleLines(text) {
 
 async function downloadAudio(url, options) {
   if (!options.downloadVideo) {
-    throw new Error("当前关闭了下载视频/音频，且该视频没有可用字幕。请在插件设置里开启下载并转写。");
+    throw new Error("当前关闭了音视频转录，且该视频没有可用字幕。请在插件设置里开启音视频转录。");
   }
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "bilibili-audio-"));
@@ -280,40 +279,37 @@ async function downloadAudio(url, options) {
   const files = await fs.readdir(tempDir);
   const media = files.find((file) => /\.(mp3|m4a|mp4|webm|wav|mpeg|mpga|aac)$/i.test(file));
   if (!media) {
-    throw new Error("没有找到可转写的音频文件。");
+    throw new Error("没有找到可转录的音频文件。");
   }
   return path.join(tempDir, media);
 }
 
 async function transcribeWithLocalWhisper(mediaPath, options) {
-  const modelPath = await resolveUsableWhisperModel(options.localWhisperModelPath || "models/ggml-large-v3.bin");
+  const modelPath = await resolveUsableWhisperModel(options.localWhisperModelPath || "models/ggml-small.bin");
   const wavPath = path.join(path.dirname(mediaPath), "audio.wav");
-  await execFileAsync("/opt/homebrew/bin/ffmpeg", [
-    "-y",
-    "-i", mediaPath,
-    "-ar", "16000",
-    "-ac", "1",
-    "-c:a", "pcm_s16le",
-    wavPath
-  ], {
-    timeout: 1000 * 60 * 10,
-    maxBuffer: 1024 * 1024 * 30
-  });
-
   const outputBase = path.join(path.dirname(mediaPath), "transcript");
-  await execFileAsync("/opt/homebrew/bin/whisper-cli", [
-    "-m", modelPath,
-    "-f", wavPath,
-    "-l", "auto",
-    "-otxt",
-    "-of", outputBase,
-    "-nt",
-    "-np"
-  ], {
-    timeout: 1000 * 60 * 60,
-    maxBuffer: 1024 * 1024 * 30
-  });
-  return cleanText(await fs.readFile(`${outputBase}.txt`, "utf8"));
+  const ffmpegPath = await findExecutable(getFfmpegCandidates(), ["-version"], "缺少 ffmpeg，无法提取音频。");
+  const whisper = await findWhisperCommand();
+  try {
+    await execFileAsync(ffmpegPath, [
+      "-y",
+      "-i", mediaPath,
+      "-ar", "16000",
+      "-ac", "1",
+      "-c:a", "pcm_s16le",
+      wavPath
+    ], {
+      timeout: 1000 * 60 * 10,
+      maxBuffer: 1024 * 1024 * 30
+    });
+
+    const transcriptPath = await runWhisperCli(whisper, modelPath, wavPath, outputBase, 1000 * 60 * 60);
+    return cleanText(await fs.readFile(transcriptPath, "utf8"));
+  } finally {
+    await cleanupTempPath(wavPath);
+    await cleanupTempPath(`${outputBase}.txt`);
+    await cleanupTempPath(`${wavPath}.txt`);
+  }
 }
 
 async function summarizeWithChatApi(sourceText, extracted, options) {
@@ -330,7 +326,7 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
       messages: [
         {
           role: "system",
-          content: "你是一个严谨的中文视频学习笔记整理助手。把 B 站视频整理成适合 Obsidian 保存的 Markdown。不要编造字幕里没有的信息。"
+          content: "你是一个严谨的中文视频学习笔记整理助手。把 B 站视频整理成适合 Obsidian 长期复习的 Markdown。不要编造字幕里没有的信息，不要输出逐字稿或大段原字幕。"
         },
         {
           role: "user",
@@ -345,6 +341,12 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
             "## 核心要点",
             "## 可执行清单",
             "## 值得回看",
+            "",
+            "写作要求：",
+            "- 时间轴重点只保留关键段落，不要逐句列字幕。",
+            "- 核心要点要合并同类项，写成可复习的知识点。",
+            "- 可执行清单必须是具体行动；没有就写“暂无明确行动”。",
+            "- 不要输出原始字幕或逐字稿。",
             "",
             "原始内容：",
             sourceText.slice(0, 60000)
@@ -406,29 +408,7 @@ async function classifyCategory(sourceText, extracted, options) {
   return pickAllowedCategory(data.choices?.[0]?.message?.content || "", categories);
 }
 
-async function archiveMedia(mediaPath, options, extracted) {
-  const vaultPath = options.vaultPath;
-  const attachmentFolder = options.mediaFolder || "附件/B站";
-  const folderAbs = path.join(vaultPath, attachmentFolder);
-  await fs.mkdir(folderAbs, { recursive: true });
-
-  const ext = path.extname(mediaPath) || ".m4a";
-  const date = localDateString();
-  const base = sanitizeFilename(extracted.title || "B站音频").slice(0, 60) || "B站音频";
-  let relativePath = path.posix.join(attachmentFolder.replace(/\\/g, "/"), `${date} ${base}${ext}`);
-  let absPath = path.join(vaultPath, relativePath);
-  let index = 2;
-  while (existsSync(absPath)) {
-    relativePath = path.posix.join(attachmentFolder.replace(/\\/g, "/"), `${date} ${base} ${index}${ext}`);
-    absPath = path.join(vaultPath, relativePath);
-    index += 1;
-  }
-
-  await fs.copyFile(mediaPath, absPath);
-  return relativePath;
-}
-
-async function writeNote({ vaultPath, outputFolder, category, extracted, summary, transcript, transcriptSource, archivedMediaPath, mediaPath }) {
+async function writeNote({ vaultPath, outputFolder, category, extracted, summary, transcript, transcriptSource, mediaPath }) {
   const safeCategory = sanitizePathSegment(category || "未分类");
   const noteFolder = safeCategory
     ? path.posix.join(outputFolder.replace(/\\/g, "/"), safeCategory)
@@ -460,6 +440,12 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
     "---"
   ].filter(Boolean).join("\n");
 
+  const sourceHints = [
+    extracted.description ? "- 已读取视频简介。" : "",
+    transcriptSource ? `- 已读取${transcriptSource}，用于生成摘要；逐字稿不写入笔记。` : ""
+  ].filter(Boolean);
+  const descriptionExcerpt = excerptText(extracted.description, 500);
+
   const body = [
     frontmatter,
     "",
@@ -468,13 +454,16 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
     `原链接：${extracted.webpageUrl || extracted.url}`,
     extracted.uploader ? `UP 主：${extracted.uploader}` : "",
     extracted.duration ? `时长：${formatDuration(extracted.duration)}` : "",
-    transcriptSource ? `字幕/转写来源：${transcriptSource}` : "",
-    archivedMediaPath ? `媒体文件：[[${archivedMediaPath}]]` : "",
+    transcriptSource ? `字幕/转录来源：${transcriptSource}` : "",
     "",
     summary || "暂无可用摘要。",
     "",
-    extracted.description ? ["## 视频简介", "", extracted.description, ""].join("\n") : "",
-    transcript ? ["## 原始字幕/转写", "", transcript, ""].join("\n") : ""
+    "## 内容来源",
+    "",
+    sourceHints.length ? sourceHints.join("\n") : "- 未能提取到足够原始信息。",
+    "",
+    descriptionExcerpt ? ["## 简介片段", "", descriptionExcerpt, ""].join("\n") : "",
+    mediaPath ? "<!-- 临时音频已在转录后删除。 -->\n" : ""
   ].filter(Boolean).join("\n");
 
   await fs.writeFile(absPath, body, "utf8");
@@ -483,12 +472,14 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
 
 async function findPythonWithYtDlp() {
   const candidates = [
-    path.join(pluginDir, ".venv", "bin", "python"),
+    getVenvPythonPath(),
     "/usr/bin/python3",
-    "python3"
+    "python3",
+    "python",
+    "py"
   ];
   for (const candidate of candidates) {
-    if (candidate.startsWith("/") && !existsSync(candidate)) {
+    if (looksLikeAbsolutePath(candidate) && !existsSync(candidate)) {
       continue;
     }
     try {
@@ -505,10 +496,10 @@ async function resolveUsableWhisperModel(preferredPath) {
   const modelPath = resolvePluginPath(preferredPath);
   if (existsSync(modelPath)) {
     const stat = await fs.stat(modelPath);
-    if (!/large-v3/i.test(modelPath) || stat.size > 2_900_000_000) {
+    if (!/ggml-small\.bin$/i.test(modelPath) || stat.size > 450_000_000) {
       return modelPath;
     }
-    warnings.push("large-v3 模型还没下载完整，暂时回退到 base 模型转写。");
+    warnings.push("small 模型还没下载完整，暂时回退到 base 模型转录。");
   }
 
   const fallbackPath = resolvePluginPath("models/ggml-base.bin");
@@ -516,6 +507,114 @@ async function resolveUsableWhisperModel(preferredPath) {
     return fallbackPath;
   }
   throw new Error(`本地 Whisper 模型不存在或未下载完整：${modelPath}`);
+}
+
+async function findExecutable(candidates, testArgs, missingMessage) {
+  for (const candidate of candidates) {
+    if (looksLikeAbsolutePath(candidate) && !existsSync(candidate)) {
+      continue;
+    }
+    try {
+      await execFileAsync(candidate, testArgs, { timeout: 10000 });
+      return candidate;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  throw new Error(missingMessage);
+}
+
+async function findWhisperCommand() {
+  for (const candidate of getWhisperCandidates()) {
+    if (looksLikeAbsolutePath(candidate) && !existsSync(candidate)) {
+      continue;
+    }
+    try {
+      await execFileAsync(candidate, ["--help"], { timeout: 10000 });
+      return {
+        path: candidate,
+        kind: /whisper-cpp(?:\.exe)?$/i.test(candidate) ? "python" : "native"
+      };
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  throw new Error("缺少本地 Whisper 转录工具。请先在插件设置页安装依赖。");
+}
+
+async function runWhisperCli(whisper, modelPath, wavPath, outputBase, timeout) {
+  await execFileAsync(whisper.path, [
+    "-m", modelPath,
+    "-f", wavPath,
+    "-l", "auto",
+    "-otxt",
+    "-of", outputBase,
+    "-nt",
+    "-np"
+  ], {
+    timeout,
+    maxBuffer: 1024 * 1024 * 30
+  });
+  return findNewestTranscript(path.dirname(wavPath), [`${outputBase}.txt`, `${wavPath}.txt`]);
+}
+
+async function findNewestTranscript(dir, preferredPaths) {
+  for (const candidate of preferredPaths) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  const files = await fs.readdir(dir);
+  const txtFiles = [];
+  for (const file of files) {
+    if (!file.toLowerCase().endsWith(".txt")) {
+      continue;
+    }
+    const fullPath = path.join(dir, file);
+    const stat = await fs.stat(fullPath);
+    txtFiles.push({ fullPath, mtimeMs: stat.mtimeMs });
+  }
+  txtFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  if (txtFiles[0]) {
+    return txtFiles[0].fullPath;
+  }
+  throw new Error("本地 Whisper 已运行，但没有找到转录文本。");
+}
+
+function getVenvPythonPath() {
+  return IS_WINDOWS
+    ? path.join(pluginDir, ".venv", "Scripts", "python.exe")
+    : path.join(pluginDir, ".venv", "bin", "python");
+}
+
+function getFfmpegCandidates() {
+  return IS_WINDOWS
+    ? ["ffmpeg.exe", "ffmpeg"]
+    : ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"];
+}
+
+function getWhisperCandidates() {
+  return IS_WINDOWS
+    ? [
+      path.join(pluginDir, ".venv", "Scripts", "whisper-cpp.exe"),
+      path.join(pluginDir, ".venv", "Scripts", "whisper-cli.exe"),
+      "whisper-cpp.exe",
+      "whisper-cli.exe",
+      "whisper-cpp",
+      "whisper-cli"
+    ]
+    : [
+      path.join(pluginDir, ".venv", "bin", "whisper-cpp"),
+      path.join(pluginDir, ".venv", "bin", "whisper-cli"),
+      "/opt/homebrew/bin/whisper-cli",
+      "/usr/local/bin/whisper-cli",
+      "whisper-cli",
+      "whisper-cpp"
+    ];
+}
+
+function looksLikeAbsolutePath(value) {
+  return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(String(value || ""));
 }
 
 function fallbackSummary(text) {
@@ -537,6 +636,33 @@ function fallbackSummary(text) {
     "## 核心要点",
     ...sentences.slice(0, 5).map((sentence) => `- ${sentence}`)
   ].join("\n");
+}
+
+function excerptText(text, maxLength = 500) {
+  const clean = cleanText(text);
+  if (!clean) {
+    return "";
+  }
+  return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+async function cleanupTempMedia(mediaPath) {
+  if (!mediaPath) {
+    return;
+  }
+  const tempRoot = path.resolve(os.tmpdir());
+  const mediaDir = path.resolve(path.dirname(mediaPath));
+  if (!mediaDir.startsWith(tempRoot)) {
+    return;
+  }
+  await cleanupTempPath(mediaDir);
+}
+
+async function cleanupTempPath(targetPath) {
+  if (!targetPath) {
+    return;
+  }
+  await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
 }
 
 function normalizeModelOptions(options) {
