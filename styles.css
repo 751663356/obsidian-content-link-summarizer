@@ -1,0 +1,15 @@
+.xhs-summarizer-modal textarea {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+}
+
+.xhs-summarizer-muted {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+}
+
+.xhs-summarizer-setting-warning {
+  color: var(--text-warning);
+}

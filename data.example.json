@@ -1,0 +1,28 @@
+{
+  "outputFolder": "笔记/小红书",
+  "bilibiliOutputFolder": "笔记/B站",
+  "nodePath": "node",
+  "summaryApiKey": "",
+  "summaryApiBaseUrl": "https://api.z.ai/api/paas/v4",
+  "summaryModel": "glm-5.1",
+  "visionApiKey": "",
+  "visionApiBaseUrl": "https://api.z.ai/api/paas/v4",
+  "visionModel": "glm-5v-turbo",
+  "useVisionModel": true,
+  "transcriptionModel": "gpt-4o-mini-transcribe",
+  "localWhisperModelPath": "models/ggml-large-v3.bin",
+  "noteCategories": [
+    "技术与工具",
+    "面试与求职",
+    "职场与沟通",
+    "学习与认知",
+    "生活与健康",
+    "财务与商业",
+    "情感与关系",
+    "娱乐与灵感",
+    "未分类"
+  ],
+  "tryBrowserCookies": true,
+  "downloadVideo": true,
+  "batchQueue": []
+}

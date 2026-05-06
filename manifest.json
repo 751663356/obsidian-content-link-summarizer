@@ -1,0 +1,9 @@
+{
+  "id": "xiaohongshu-summarizer",
+  "name": "内容链接总结",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "从小红书和 B 站链接提取内容、转写音视频，并在 Obsidian 中生成结构化总结。",
+  "author": "Ian + Codex",
+  "isDesktopOnly": true
+}
