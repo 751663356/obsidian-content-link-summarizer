@@ -333,6 +333,17 @@ module.exports = class XiaohongshuSummarizerPlugin extends Plugin {
     await fs.promises.writeFile(absPath, `${lines.join("\n")}\n`, "utf8");
   }
 
+  async openBatchQueueReport() {
+    await this.writeBatchQueueReport();
+    const target = normalizePath("收集箱/内容链接批量导入队列.md");
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (file) {
+      await this.app.workspace.getLeaf(true).openFile(file);
+    } else {
+      new Notice(`队列状态已写入：${target}`);
+    }
+  }
+
   async downloadWhisperLargeV3() {
     if (this.isDownloadingWhisperModel) {
       new Notice("Whisper large-v3 正在下载中。");
@@ -566,11 +577,44 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "内容链接总结" });
+    containerEl.addClass("content-link-settings");
 
-    new Setting(containerEl)
-      .setName("输出文件夹")
-      .setDesc("小红书笔记的根目录。实际会再按分类放到子文件夹。")
+    const counts = countQueueStatus(this.plugin.settings.batchQueue || []);
+    const pluginDir = path.join(this.app.vault.adapter.basePath, this.plugin.manifest.dir);
+    const largeV3Path = path.join(pluginDir, WHISPER_LARGE_V3_PATH);
+    const hasLargeV3 = isCompleteWhisperModel(largeV3Path);
+    const isDownloadingLargeV3 = Boolean(this.plugin.isDownloadingWhisperModel);
+
+    const header = containerEl.createDiv({ cls: "xhs-settings-hero" });
+    header.createEl("h2", { text: "内容链接总结" });
+    header.createEl("p", {
+      text: "把小红书和 B 站链接整理成 Obsidian 笔记，支持批量队列、视频转写、图片理解和自动分类。"
+    });
+
+    const overview = containerEl.createDiv({ cls: "xhs-settings-overview" });
+    this.createStat(overview, "待处理", String(counts.pending));
+    this.createStat(overview, "已完成", String(counts.done));
+    this.createStat(overview, "失败", String(counts.failed));
+    this.createStat(overview, "Whisper", hasLargeV3 ? "large-v3" : isDownloadingLargeV3 ? "下载中" : "未下载");
+
+    const quickActions = containerEl.createDiv({ cls: "xhs-settings-actions" });
+    new Setting(quickActions)
+      .addButton((button) => button
+        .setButtonText("批量导入")
+        .setCta()
+        .onClick(() => new BatchUrlModal(this.app, this.plugin).open()))
+      .addButton((button) => button
+        .setButtonText("继续队列")
+        .onClick(async () => this.plugin.processBatchQueue()))
+      .addButton((button) => button
+        .setButtonText("打开队列状态")
+        .onClick(async () => this.plugin.openBatchQueueReport()));
+
+    const storageSection = this.createSection(containerEl, "保存与分类", "控制笔记保存位置和自动分类候选。");
+
+    new Setting(storageSection)
+      .setName("小红书笔记文件夹")
+      .setDesc("生成的笔记会再按分类放到子文件夹。")
       .addText((text) => text
         .setPlaceholder("笔记/小红书")
         .setValue(this.plugin.settings.outputFolder)
@@ -579,9 +623,9 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
-      .setName("B 站输出文件夹")
-      .setDesc("B 站视频总结的根目录。实际会再按分类放到子文件夹。")
+    new Setting(storageSection)
+      .setName("B 站笔记文件夹")
+      .setDesc("生成的笔记会再按分类放到子文件夹。")
       .addText((text) => text
         .setPlaceholder("笔记/B站")
         .setValue(this.plugin.settings.bilibiliOutputFolder || DEFAULT_SETTINGS.bilibiliOutputFolder)
@@ -590,11 +634,11 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(storageSection)
       .setName("分类候选")
-      .setDesc("可留空。留空时使用默认大类；填写后 AI 只会从这些分类中选择。")
+      .setDesc("一行一个。留空时使用默认大类；AI 只会从这里选择。")
       .addTextArea((text) => {
-        text.inputEl.rows = 4;
+        text.inputEl.rows = 7;
         text
           .setPlaceholder(DEFAULT_NOTE_CATEGORIES.join("\n"))
           .setValue(getNoteCategories(this.plugin.settings).join("\n"))
@@ -605,20 +649,11 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName("Node 路径")
-      .setDesc("如果 Obsidian 找不到 node，可填 /opt/homebrew/bin/node 或 /usr/local/bin/node。")
-      .addText((text) => text
-        .setPlaceholder("node")
-        .setValue(this.plugin.settings.nodePath)
-        .onChange(async (value) => {
-          this.plugin.settings.nodePath = value.trim() || DEFAULT_SETTINGS.nodePath;
-          await this.plugin.saveSettings();
-        }));
+    const aiSection = this.createSection(containerEl, "AI 总结与图文理解", "配置 OpenAI 兼容接口。图文理解 Key 留空时复用总结 Key。");
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("总结 API Key")
-      .setDesc("用于调用 GLM-5.1 等 OpenAI 兼容接口做总结。不会保存小红书账号密码。")
+      .setDesc("用于调用 GLM-5.1 等模型生成总结。")
       .addText((text) => {
         text.inputEl.type = "password";
         text
@@ -630,9 +665,8 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("总结 API 地址")
-      .setDesc("Z.AI OpenAI 兼容地址默认是 https://api.z.ai/api/paas/v4。")
       .addText((text) => text
         .setPlaceholder("https://api.z.ai/api/paas/v4")
         .setValue(this.plugin.settings.summaryApiBaseUrl)
@@ -641,7 +675,7 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("总结模型")
       .addText((text) => text
         .setPlaceholder("glm-5.1")
@@ -651,9 +685,9 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("启用图文理解")
-      .setDesc("纯图片笔记会先交给视觉模型识别图片文字；失败时自动回退到本地 OCR。")
+      .setDesc("纯图片笔记会先交给视觉模型识别文字；失败时回退到本地 OCR。")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.useVisionModel !== false)
         .onChange(async (value) => {
@@ -661,9 +695,9 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("图文理解 API Key")
-      .setDesc("留空时复用上面的总结 API Key。")
+      .setDesc("留空时复用总结 API Key。")
       .addText((text) => {
         text.inputEl.type = "password";
         text
@@ -675,7 +709,7 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("图文理解 API 地址")
       .addText((text) => text
         .setPlaceholder("https://api.z.ai/api/paas/v4")
@@ -685,7 +719,7 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(aiSection)
       .setName("图文理解模型")
       .addText((text) => text
         .setPlaceholder("glm-5v-turbo")
@@ -695,9 +729,11 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    const mediaSection = this.createSection(containerEl, "转写与媒体", "控制视频下载、本地转写和浏览器登录态。");
+
+    new Setting(mediaSection)
       .setName("转写模型")
-      .setDesc("只在你额外配置 OpenAI 音频转写时使用；默认转写走本地 Whisper。GLM 负责总结和图片理解，不负责音频转文字。")
+      .setDesc("只在额外配置 OpenAI 音频转写时使用；默认走本地 Whisper。")
       .addText((text) => text
         .setPlaceholder("gpt-4o-mini-transcribe")
         .setValue(this.plugin.settings.transcriptionModel)
@@ -706,9 +742,9 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    new Setting(mediaSection)
       .setName("本地 Whisper 模型")
-      .setDesc("相对插件目录或绝对路径。准确优先建议 models/ggml-large-v3.bin；速度优先可改回 models/ggml-base.bin。")
+      .setDesc("相对插件目录或绝对路径。准确优先建议 large-v3。")
       .addText((text) => text
         .setPlaceholder("models/ggml-large-v3.bin")
         .setValue(this.plugin.settings.localWhisperModelPath)
@@ -717,11 +753,7 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    const pluginDir = path.join(this.app.vault.adapter.basePath, this.plugin.manifest.dir);
-    const largeV3Path = path.join(pluginDir, WHISPER_LARGE_V3_PATH);
-    const hasLargeV3 = isCompleteWhisperModel(largeV3Path);
-    const isDownloadingLargeV3 = Boolean(this.plugin.isDownloadingWhisperModel);
-    new Setting(containerEl)
+    new Setting(mediaSection)
       .setName("Whisper large-v3 模型")
       .setDesc(hasLargeV3
         ? "large-v3 已下载完成。"
@@ -736,8 +768,8 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           this.display();
         }));
 
-    new Setting(containerEl)
-      .setName("尝试读取浏览器登录态")
+    new Setting(mediaSection)
+      .setName("读取浏览器登录态")
       .setDesc("下载视频时让 yt-dlp 尝试使用 Chrome Cookie。插件不会保存小红书账号密码。")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.tryBrowserCookies)
@@ -746,8 +778,8 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
-      .setName("尝试下载并转写视频")
+    new Setting(mediaSection)
+      .setName("下载并转写视频")
       .addToggle((toggle) => toggle
         .setValue(this.plugin.settings.downloadVideo)
         .onChange(async (value) => {
@@ -755,10 +787,41 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    const advancedSection = this.createSection(containerEl, "高级", "通常不用改；只有 Obsidian 找不到 Node 时才需要调整。");
+
+    new Setting(advancedSection)
+      .setName("Node 路径")
+      .setDesc("可填 /opt/homebrew/bin/node 或 /usr/local/bin/node。")
+      .addText((text) => text
+        .setPlaceholder("node")
+        .setValue(this.plugin.settings.nodePath)
+        .onChange(async (value) => {
+          this.plugin.settings.nodePath = value.trim() || DEFAULT_SETTINGS.nodePath;
+          await this.plugin.saveSettings();
+        }));
+
     containerEl.createEl("p", {
       cls: "xhs-summarizer-muted xhs-summarizer-setting-warning",
       text: "不要把小红书账号密码填到这里。需要登录时，请在浏览器中手动登录。"
     });
+  }
+
+  createSection(containerEl, title, description) {
+    const section = containerEl.createDiv({ cls: "xhs-settings-section" });
+    section.createEl("h3", { text: title });
+    if (description) {
+      section.createEl("p", {
+        cls: "xhs-summarizer-muted xhs-settings-section-desc",
+        text: description
+      });
+    }
+    return section;
+  }
+
+  createStat(containerEl, label, value) {
+    const stat = containerEl.createDiv({ cls: "xhs-settings-stat" });
+    stat.createEl("span", { cls: "xhs-settings-stat-label", text: label });
+    stat.createEl("strong", { text: value });
   }
 }
 

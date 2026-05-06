@@ -13,3 +13,124 @@
 .xhs-summarizer-setting-warning {
   color: var(--text-warning);
 }
+
+.content-link-settings {
+  max-width: 980px;
+}
+
+.xhs-settings-hero {
+  margin: 0 0 18px;
+}
+
+.xhs-settings-hero h2 {
+  margin-bottom: 6px;
+}
+
+.xhs-settings-hero p {
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 760px;
+}
+
+.xhs-settings-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 10px;
+}
+
+.xhs-settings-stat {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  padding: 12px 14px;
+}
+
+.xhs-settings-stat-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-bottom: 4px;
+}
+
+.xhs-settings-stat strong {
+  display: block;
+  font-size: var(--font-ui-large);
+  line-height: 1.2;
+}
+
+.xhs-settings-actions {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  margin: 0 0 18px;
+  padding: 4px 12px;
+}
+
+.xhs-settings-actions .setting-item {
+  border: 0;
+  padding: 8px 0;
+}
+
+.xhs-settings-section {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  margin: 16px 0;
+  padding: 16px 18px 6px;
+}
+
+.xhs-settings-section h3 {
+  margin: 0 0 4px;
+}
+
+.xhs-settings-section-desc {
+  margin: 0 0 8px;
+}
+
+.content-link-settings .xhs-settings-section .setting-item {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  margin: 0;
+  padding: 14px 0;
+}
+
+.content-link-settings .setting-item-info {
+  max-width: 520px;
+}
+
+.content-link-settings .setting-item-control {
+  min-width: min(420px, 44vw);
+}
+
+.content-link-settings input[type="text"],
+.content-link-settings input[type="password"] {
+  width: min(420px, 44vw);
+}
+
+.content-link-settings textarea {
+  width: min(420px, 44vw);
+  min-height: 150px;
+  resize: vertical;
+}
+
+@media (max-width: 780px) {
+  .xhs-settings-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .content-link-settings .setting-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .content-link-settings .setting-item-control,
+  .content-link-settings input[type="text"],
+  .content-link-settings input[type="password"],
+  .content-link-settings textarea {
+    min-width: 0;
+    width: 100%;
+  }
+}
