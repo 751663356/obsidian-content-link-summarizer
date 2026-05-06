@@ -100,7 +100,7 @@ async function importUrl(options) {
 
   const category = await classifyCategory(sourceText, extracted, options);
 
-  const summary = options.summaryApiKey && sourceText.trim()
+  const summary = hasSummaryChatConfig(options) && sourceText.trim()
     ? await summarizeWithChatApi(sourceText, extracted, options).catch((error) => {
       warnings.push(`AI 总结失败：${error.message}`);
       return fallbackSummary(sourceText);
@@ -276,7 +276,7 @@ async function findPythonWithYtDlp() {
 
 async function transcribeMedia(mediaPath, options) {
   const form = new FormData();
-  form.append("model", options.transcriptionModel || "gpt-4o-mini-transcribe");
+  form.append("model", options.transcriptionModel);
   form.append("file", new Blob([await fs.readFile(mediaPath)]), path.basename(mediaPath));
 
   const response = await fetchWithTimeout("https://api.openai.com/v1/audio/transcriptions", {
@@ -294,15 +294,15 @@ async function transcribeMedia(mediaPath, options) {
 }
 
 async function transcribeMediaAuto(mediaPath, options) {
-  if (options.openaiApiKey) {
+  if (options.openaiApiKey && options.transcriptionModel) {
     const stat = await fs.stat(mediaPath);
     if (stat.size <= 24 * 1024 * 1024) {
       return transcribeMedia(mediaPath, options);
     }
     warnings.push("媒体文件超过 24MB，正在改用本地 Whisper 转写。");
   }
-  if (!options.openaiApiKey) {
-    warnings.push("未设置 OpenAI 音频转写 Key，正在使用本地 Whisper 转写。");
+  if (!options.openaiApiKey || !options.transcriptionModel) {
+    warnings.push("未设置云端音频转写 Key 或模型，正在使用本地 Whisper 转写。");
   }
   return transcribeWithLocalWhisper(mediaPath, options);
 }
@@ -374,7 +374,7 @@ async function ocrImages(imageUrls, options = {}) {
     preparedPaths.push(existsSync(preparedPath) ? preparedPath : imagePath);
   }
 
-  if (options.useVisionModel !== false && options.visionApiKey && preparedPaths.length) {
+  if (options.useVisionModel !== false && hasVisionChatConfig(options) && preparedPaths.length) {
     const visionText = await ocrImagesWithVisionModel(preparedPaths, options).catch((error) => {
       warnings.push(`视觉模型识别图片失败，回退到本地 OCR：${error.message}`);
       return "";
@@ -402,7 +402,7 @@ async function ocrImagesWithVisionModel(imagePaths, options) {
 
 async function ocrSingleImageWithVisionModel(imagePath, imageIndex, options) {
   const dataUrl = await imageToDataUrl(imagePath);
-  const baseUrl = String(options.visionApiBaseUrl || options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const baseUrl = String(options.visionApiBaseUrl || options.summaryApiBaseUrl).replace(/\/+$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -410,7 +410,7 @@ async function ocrSingleImageWithVisionModel(imagePath, imageIndex, options) {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: options.visionModel || "glm-5v-turbo",
+      model: options.visionModel,
       temperature: 0,
       max_tokens: 2200,
       messages: [
@@ -593,7 +593,7 @@ async function resolveUsableWhisperModel(preferredPath) {
 }
 
 async function summarizeWithChatApi(sourceText, extracted, options) {
-  const baseUrl = String(options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const baseUrl = String(options.summaryApiBaseUrl).replace(/\/+$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -601,9 +601,8 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: options.summaryModel || "glm-5.1",
+      model: options.summaryModel,
       temperature: 0.2,
-      ...(baseUrl.includes("api.z.ai") ? { thinking: { type: "disabled" } } : {}),
       messages: [
         {
           role: "system",
@@ -640,11 +639,11 @@ async function classifyCategory(sourceText, extracted, options) {
   if (requested && requested !== "__auto__" && categories.includes(requested)) {
     return requested;
   }
-  if (!options.summaryApiKey || !sourceText.trim()) {
+  if (!hasSummaryChatConfig(options) || !sourceText.trim()) {
     return guessCategory(sourceText, categories);
   }
 
-  const baseUrl = String(options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const baseUrl = String(options.summaryApiBaseUrl).replace(/\/+$/, "");
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -652,9 +651,8 @@ async function classifyCategory(sourceText, extracted, options) {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: options.summaryModel || "glm-5.1",
+      model: options.summaryModel,
       temperature: 0,
-      ...(baseUrl.includes("api.z.ai") ? { thinking: { type: "disabled" } } : {}),
       messages: [
         {
           role: "system",
@@ -865,13 +863,21 @@ function filterImageUrls(values) {
 }
 
 function normalizeModelOptions(options) {
-  options.summaryApiKey = options.summaryApiKey || process.env.SUMMARY_API_KEY || process.env.DEEPSEEK_API_KEY || options.openaiApiKey || process.env.OPENAI_API_KEY || "";
-  options.summaryApiBaseUrl = options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4";
-  options.summaryModel = options.summaryModel || "glm-5.1";
+  options.summaryApiKey = options.summaryApiKey || process.env.SUMMARY_API_KEY || options.openaiApiKey || process.env.OPENAI_API_KEY || "";
+  options.summaryApiBaseUrl = options.summaryApiBaseUrl || process.env.SUMMARY_API_BASE_URL || process.env.OPENAI_BASE_URL || "";
+  options.summaryModel = options.summaryModel || process.env.SUMMARY_MODEL || "";
   options.visionApiKey = options.visionApiKey || process.env.VISION_API_KEY || options.summaryApiKey || "";
-  options.visionApiBaseUrl = options.visionApiBaseUrl || options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4";
-  options.visionModel = options.visionModel || "glm-5v-turbo";
+  options.visionApiBaseUrl = options.visionApiBaseUrl || process.env.VISION_API_BASE_URL || options.summaryApiBaseUrl || "";
+  options.visionModel = options.visionModel || process.env.VISION_MODEL || "";
   options.noteCategories = normalizeCategories(options.noteCategories);
+}
+
+function hasSummaryChatConfig(options) {
+  return Boolean(options.summaryApiKey && options.summaryApiBaseUrl && options.summaryModel);
+}
+
+function hasVisionChatConfig(options) {
+  return Boolean(options.visionApiKey && (options.visionApiBaseUrl || options.summaryApiBaseUrl) && options.visionModel);
 }
 
 function normalizeCategories(value) {

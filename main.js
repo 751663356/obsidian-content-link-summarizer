@@ -17,13 +17,13 @@ const DEFAULT_SETTINGS = {
   nodePath: "/Users/ian/.nvm/versions/node/v24.14.0/bin/node",
   openaiApiKey: "",
   summaryApiKey: "",
-  summaryApiBaseUrl: "https://api.z.ai/api/paas/v4",
-  summaryModel: "glm-5.1",
+  summaryApiBaseUrl: "",
+  summaryModel: "",
   visionApiKey: "",
-  visionApiBaseUrl: "https://api.z.ai/api/paas/v4",
-  visionModel: "glm-5v-turbo",
+  visionApiBaseUrl: "",
+  visionModel: "",
   useVisionModel: true,
-  transcriptionModel: "gpt-4o-mini-transcribe",
+  transcriptionModel: "",
   localWhisperModelPath: "models/ggml-large-v3.bin",
   noteCategories: [],
   tryBrowserCookies: true,
@@ -649,15 +649,15 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           });
       });
 
-    const aiSection = this.createSection(containerEl, "AI 总结与图文理解", "配置 OpenAI 兼容接口。图文理解 Key 留空时复用总结 Key。");
+    const aiSection = this.createSection(containerEl, "AI 总结与图文理解", "配置兼容 chat/completions 的接口。图文理解 Key 留空时复用总结 Key。");
 
     new Setting(aiSection)
       .setName("总结 API Key")
-      .setDesc("用于调用 GLM-5.1 等模型生成总结。")
+      .setDesc("用于调用你自己配置的总结接口。")
       .addText((text) => {
         text.inputEl.type = "password";
         text
-          .setPlaceholder("Z.AI API Key")
+          .setPlaceholder("API Key")
           .setValue(this.plugin.settings.summaryApiKey || this.plugin.settings.openaiApiKey || "")
           .onChange(async (value) => {
             this.plugin.settings.summaryApiKey = value.trim();
@@ -668,20 +668,20 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
     new Setting(aiSection)
       .setName("总结 API 地址")
       .addText((text) => text
-        .setPlaceholder("https://api.z.ai/api/paas/v4")
+        .setPlaceholder("https://example.com/v1")
         .setValue(this.plugin.settings.summaryApiBaseUrl)
         .onChange(async (value) => {
-          this.plugin.settings.summaryApiBaseUrl = value.trim() || DEFAULT_SETTINGS.summaryApiBaseUrl;
+          this.plugin.settings.summaryApiBaseUrl = value.trim();
           await this.plugin.saveSettings();
         }));
 
     new Setting(aiSection)
       .setName("总结模型")
       .addText((text) => text
-        .setPlaceholder("glm-5.1")
+        .setPlaceholder("填写你的模型名称")
         .setValue(this.plugin.settings.summaryModel)
         .onChange(async (value) => {
-          this.plugin.settings.summaryModel = value.trim() || DEFAULT_SETTINGS.summaryModel;
+          this.plugin.settings.summaryModel = value.trim();
           await this.plugin.saveSettings();
         }));
 
@@ -712,20 +712,20 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
     new Setting(aiSection)
       .setName("图文理解 API 地址")
       .addText((text) => text
-        .setPlaceholder("https://api.z.ai/api/paas/v4")
+        .setPlaceholder("默认复用总结 API 地址")
         .setValue(this.plugin.settings.visionApiBaseUrl || this.plugin.settings.summaryApiBaseUrl)
         .onChange(async (value) => {
-          this.plugin.settings.visionApiBaseUrl = value.trim() || DEFAULT_SETTINGS.visionApiBaseUrl;
+          this.plugin.settings.visionApiBaseUrl = value.trim();
           await this.plugin.saveSettings();
         }));
 
     new Setting(aiSection)
       .setName("图文理解模型")
       .addText((text) => text
-        .setPlaceholder("glm-5v-turbo")
-        .setValue(this.plugin.settings.visionModel || DEFAULT_SETTINGS.visionModel)
+        .setPlaceholder("填写你的视觉模型名称")
+        .setValue(this.plugin.settings.visionModel || "")
         .onChange(async (value) => {
-          this.plugin.settings.visionModel = value.trim() || DEFAULT_SETTINGS.visionModel;
+          this.plugin.settings.visionModel = value.trim();
           await this.plugin.saveSettings();
         }));
 
@@ -733,12 +733,12 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
 
     new Setting(mediaSection)
       .setName("转写模型")
-      .setDesc("只在额外配置 OpenAI 音频转写时使用；默认走本地 Whisper。")
+      .setDesc("只在额外配置云端音频转写时使用。留空则使用本地转写。")
       .addText((text) => text
-        .setPlaceholder("gpt-4o-mini-transcribe")
+        .setPlaceholder("填写你的转写模型名称")
         .setValue(this.plugin.settings.transcriptionModel)
         .onChange(async (value) => {
-          this.plugin.settings.transcriptionModel = value.trim() || DEFAULT_SETTINGS.transcriptionModel;
+          this.plugin.settings.transcriptionModel = value.trim();
           await this.plugin.saveSettings();
         }));
 

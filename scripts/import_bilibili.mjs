@@ -69,7 +69,7 @@ async function importUrl(options) {
     transcript ? `字幕/转写来源：${transcriptSource}\n${transcript}` : ""
   ].filter(Boolean).join("\n\n");
 
-  const summary = options.summaryApiKey && sourceText.trim()
+  const summary = hasSummaryChatConfig(options) && sourceText.trim()
     ? await summarizeWithChatApi(sourceText, extracted, options).catch((error) => {
       warnings.push(`AI 总结失败：${error.message}`);
       return fallbackSummary(sourceText);
@@ -317,7 +317,7 @@ async function transcribeWithLocalWhisper(mediaPath, options) {
 }
 
 async function summarizeWithChatApi(sourceText, extracted, options) {
-  const baseUrl = String(options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const baseUrl = String(options.summaryApiBaseUrl).replace(/\/+$/, "");
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -325,9 +325,8 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: options.summaryModel || "glm-5.1",
+      model: options.summaryModel,
       temperature: 0.2,
-      ...(baseUrl.includes("api.z.ai") ? { thinking: { type: "disabled" } } : {}),
       messages: [
         {
           role: "system",
@@ -367,11 +366,11 @@ async function classifyCategory(sourceText, extracted, options) {
   if (requested && requested !== "__auto__" && categories.includes(requested)) {
     return requested;
   }
-  if (!options.summaryApiKey || !sourceText.trim()) {
+  if (!hasSummaryChatConfig(options) || !sourceText.trim()) {
     return guessCategory(sourceText, categories);
   }
 
-  const baseUrl = String(options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4").replace(/\/+$/, "");
+  const baseUrl = String(options.summaryApiBaseUrl).replace(/\/+$/, "");
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -379,9 +378,8 @@ async function classifyCategory(sourceText, extracted, options) {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: options.summaryModel || "glm-5.1",
+      model: options.summaryModel,
       temperature: 0,
-      ...(baseUrl.includes("api.z.ai") ? { thinking: { type: "disabled" } } : {}),
       messages: [
         {
           role: "system",
@@ -542,10 +540,14 @@ function fallbackSummary(text) {
 }
 
 function normalizeModelOptions(options) {
-  options.summaryApiKey = options.summaryApiKey || process.env.SUMMARY_API_KEY || process.env.DEEPSEEK_API_KEY || options.openaiApiKey || process.env.OPENAI_API_KEY || "";
-  options.summaryApiBaseUrl = options.summaryApiBaseUrl || "https://api.z.ai/api/paas/v4";
-  options.summaryModel = options.summaryModel || "glm-5.1";
+  options.summaryApiKey = options.summaryApiKey || process.env.SUMMARY_API_KEY || options.openaiApiKey || process.env.OPENAI_API_KEY || "";
+  options.summaryApiBaseUrl = options.summaryApiBaseUrl || process.env.SUMMARY_API_BASE_URL || process.env.OPENAI_BASE_URL || "";
+  options.summaryModel = options.summaryModel || process.env.SUMMARY_MODEL || "";
   options.noteCategories = normalizeCategories(options.noteCategories);
+}
+
+function hasSummaryChatConfig(options) {
+  return Boolean(options.summaryApiKey && options.summaryApiBaseUrl && options.summaryModel);
 }
 
 function normalizeSubtitleUrl(url) {
