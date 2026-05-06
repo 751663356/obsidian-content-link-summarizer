@@ -42,6 +42,9 @@ const DEFAULT_NOTE_CATEGORIES = [
   "娱乐与灵感",
   "未分类"
 ];
+const WHISPER_LARGE_V3_PATH = "models/ggml-large-v3.bin";
+const WHISPER_LARGE_V3_MIN_BYTES = 2_900_000_000;
+const WHISPER_LARGE_V3_URL = "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin?download=true";
 
 module.exports = class XiaohongshuSummarizerPlugin extends Plugin {
   async onload() {
@@ -53,6 +56,7 @@ module.exports = class XiaohongshuSummarizerPlugin extends Plugin {
       this.settings.batchQueue = [];
     }
     this.isProcessingQueue = false;
+    this.isDownloadingWhisperModel = false;
 
     this.addCommand({
       id: "import-content-url",
@@ -327,6 +331,76 @@ module.exports = class XiaohongshuSummarizerPlugin extends Plugin {
       })
     ];
     await fs.promises.writeFile(absPath, `${lines.join("\n")}\n`, "utf8");
+  }
+
+  async downloadWhisperLargeV3() {
+    if (this.isDownloadingWhisperModel) {
+      new Notice("Whisper large-v3 正在下载中。");
+      return;
+    }
+
+    const pluginDir = path.join(this.app.vault.adapter.basePath, this.manifest.dir);
+    const relativePath = WHISPER_LARGE_V3_PATH;
+    const modelPath = path.join(pluginDir, relativePath);
+    if (isCompleteWhisperModel(modelPath)) {
+      this.settings.localWhisperModelPath = relativePath;
+      await this.saveSettings();
+      new Notice("Whisper large-v3 已经下载完成。");
+      return;
+    }
+
+    this.isDownloadingWhisperModel = true;
+    const tempPath = `${modelPath}.download`;
+    await fs.promises.mkdir(path.dirname(modelPath), { recursive: true });
+    new Notice("开始下载 Whisper large-v3，文件接近 3GB，完成前请保持网络连接。");
+
+    const child = childProcess.spawn("curl", [
+      "-L",
+      "--fail",
+      "--continue-at", "-",
+      "-o", tempPath,
+      WHISPER_LARGE_V3_URL
+    ], {
+      cwd: pluginDir,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+      if (stderr.length > 4000) {
+        stderr = stderr.slice(-4000);
+      }
+    });
+
+    child.on("error", (error) => {
+      this.isDownloadingWhisperModel = false;
+      console.error(error);
+      new Notice(`Whisper large-v3 下载失败：${error.message || error}`);
+    });
+
+    child.on("close", async (code) => {
+      this.isDownloadingWhisperModel = false;
+      if (code !== 0) {
+        new Notice(`Whisper large-v3 下载失败：curl 退出码 ${code}`);
+        console.error(stderr);
+        return;
+      }
+      try {
+        const stat = await fs.promises.stat(tempPath);
+        if (stat.size < WHISPER_LARGE_V3_MIN_BYTES) {
+          new Notice("Whisper large-v3 下载不完整，请稍后重新点击下载。");
+          return;
+        }
+        await fs.promises.rename(tempPath, modelPath);
+        this.settings.localWhisperModelPath = relativePath;
+        await this.saveSettings();
+        new Notice("Whisper large-v3 下载完成，已切换为本地转写模型。");
+      } catch (error) {
+        console.error(error);
+        new Notice(`Whisper large-v3 保存失败：${error.message || error}`);
+      }
+    });
   }
 
   runHelper(scriptName, payload, timeoutMs = 1000 * 60 * 45) {
@@ -643,6 +717,25 @@ class XiaohongshuSummarizerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
+    const pluginDir = path.join(this.app.vault.adapter.basePath, this.plugin.manifest.dir);
+    const largeV3Path = path.join(pluginDir, WHISPER_LARGE_V3_PATH);
+    const hasLargeV3 = isCompleteWhisperModel(largeV3Path);
+    const isDownloadingLargeV3 = Boolean(this.plugin.isDownloadingWhisperModel);
+    new Setting(containerEl)
+      .setName("Whisper large-v3 模型")
+      .setDesc(hasLargeV3
+        ? "large-v3 已下载完成。"
+        : isDownloadingLargeV3
+          ? "large-v3 正在下载中，请保持网络连接。"
+          : "下载准确优先的本地转写模型，约 3GB。模型只保存在本机，不会上传到 GitHub。")
+      .addButton((button) => button
+        .setButtonText(hasLargeV3 ? "已下载" : isDownloadingLargeV3 ? "下载中" : "下载 large-v3")
+        .setDisabled(hasLargeV3 || isDownloadingLargeV3)
+        .onClick(async () => {
+          await this.plugin.downloadWhisperLargeV3();
+          this.display();
+        }));
+
     new Setting(containerEl)
       .setName("尝试读取浏览器登录态")
       .setDesc("下载视频时让 yt-dlp 尝试使用 Chrome Cookie。插件不会保存小红书账号密码。")
@@ -757,6 +850,14 @@ function escapeTableCell(value) {
   return String(value || "")
     .replace(/\n/g, " ")
     .replace(/\|/g, "\\|");
+}
+
+function isCompleteWhisperModel(modelPath) {
+  try {
+    return fs.existsSync(modelPath) && fs.statSync(modelPath).size >= WHISPER_LARGE_V3_MIN_BYTES;
+  } catch {
+    return false;
+  }
 }
 
 function trimUrl(url) {

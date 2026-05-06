@@ -83,7 +83,13 @@ brew install ffmpeg whisper-cpp
 mkdir -p ".obsidian/plugins/xiaohongshu-summarizer/models"
 ```
 
-准确优先建议下载 `large-v3`：
+准确优先建议使用 `large-v3`。可以直接在插件设置里点击 `下载 large-v3`，模型会保存到：
+
+```text
+models/ggml-large-v3.bin
+```
+
+也可以手动下载：
 
 ```bash
 curl -L -o ".obsidian/plugins/xiaohongshu-summarizer/models/ggml-large-v3.bin" \
