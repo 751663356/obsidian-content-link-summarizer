@@ -442,7 +442,7 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
 
   const sourceHints = [
     extracted.description ? "- 已读取视频简介。" : "",
-    transcriptSource ? `- 已读取${transcriptSource}，用于生成摘要；逐字稿不写入笔记。` : ""
+    transcriptSource ? `- 已读取${transcriptSource}，完整字幕/转录见下方折叠区。` : ""
   ].filter(Boolean);
   const descriptionExcerpt = excerptText(extracted.description, 500);
 
@@ -463,6 +463,7 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
     sourceHints.length ? sourceHints.join("\n") : "- 未能提取到足够原始信息。",
     "",
     descriptionExcerpt ? ["## 简介片段", "", descriptionExcerpt, ""].join("\n") : "",
+    transcript ? formatTranscriptSection("完整字幕/转录", transcript, transcriptSource) : "",
     mediaPath ? "<!-- 临时音频已在转录后删除。 -->\n" : ""
   ].filter(Boolean).join("\n");
 
@@ -644,6 +645,33 @@ function excerptText(text, maxLength = 500) {
     return "";
   }
   return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+function formatTranscriptSection(title, transcript, source = "") {
+  const clean = cleanText(transcript);
+  if (!clean) {
+    return "";
+  }
+  return [
+    `## ${title}`,
+    "",
+    source ? `来源：${source}` : "",
+    source ? "" : "",
+    "<details>",
+    `<summary>展开${title}</summary>`,
+    "",
+    fencedText(clean),
+    "",
+    "</details>",
+    ""
+  ].filter((item) => item !== "").join("\n");
+}
+
+function fencedText(text) {
+  const value = String(text || "");
+  const longestFence = Math.max(2, ...[...value.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = "`".repeat(longestFence + 1);
+  return [fence + "text", value, fence].join("\n");
 }
 
 async function cleanupTempMedia(mediaPath) {

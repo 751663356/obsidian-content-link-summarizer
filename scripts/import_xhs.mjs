@@ -840,7 +840,7 @@ async function writeNote({ vaultPath, outputFolder, url, extracted, summary, tra
   const sourceHints = [
     extracted.body || extracted.description ? "- 已读取页面正文/描述。" : "",
     imageOcrText ? "- 已读取图片中的文字，用于生成摘要。" : "",
-    hasMeaningfulTranscript(transcript) ? "- 已转录视频声音，用于生成摘要；逐字稿不写入笔记。" : "",
+    hasMeaningfulTranscript(transcript) ? "- 已转录视频声音，完整转录见下方折叠区。" : "",
     ocrText ? "- 已识别视频画面文字，用于生成摘要。" : ""
   ].filter(Boolean);
 
@@ -860,6 +860,7 @@ async function writeNote({ vaultPath, outputFolder, url, extracted, summary, tra
     sourceHints.length ? sourceHints.join("\n") : "- 未能从页面静态内容中提取到足够原始信息。",
     "",
     sourceExcerpt ? ["## 原文片段", "", sourceExcerpt, ""].join("\n") : "",
+    hasMeaningfulTranscript(transcript) ? formatTranscriptSection("完整视频转录", transcript) : "",
     extracted.noteLinks.length ? ["## 页面中发现的笔记链接", "", ...extracted.noteLinks.map((link) => `- ${link}`), ""].join("\n") : "",
     archivedMediaPath ? `<!-- 已归档媒体：${archivedMediaPath} -->\n` : ""
   ].filter(Boolean).join("\n");
@@ -895,6 +896,31 @@ function excerptText(text, maxLength = 500) {
     return "";
   }
   return clean.length > maxLength ? `${clean.slice(0, maxLength)}...` : clean;
+}
+
+function formatTranscriptSection(title, transcript) {
+  const clean = cleanText(transcript);
+  if (!clean) {
+    return "";
+  }
+  return [
+    `## ${title}`,
+    "",
+    "<details>",
+    `<summary>展开${title}</summary>`,
+    "",
+    fencedText(clean),
+    "",
+    "</details>",
+    ""
+  ].join("\n");
+}
+
+function fencedText(text) {
+  const value = String(text || "");
+  const longestFence = Math.max(2, ...[...value.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = "`".repeat(longestFence + 1);
+  return [fence + "text", value, fence].join("\n");
 }
 
 async function cleanupTempMedia(mediaPath) {
