@@ -125,6 +125,7 @@ function normalizeVideoInfo(info, fallbackUrl) {
     duration: Number(info.duration || 0),
     description: cleanText(info.description || ""),
     bvid: info.id || info.display_id || "",
+    cid: info.cid || "",
     viewCount: info.view_count || "",
     likeCount: info.like_count || "",
     commentCount: info.comment_count || ""
@@ -445,6 +446,7 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
     transcriptSource ? `- 已读取${transcriptSource}，完整字幕/转录见下方折叠区。` : ""
   ].filter(Boolean);
   const descriptionExcerpt = excerptText(extracted.description, 500);
+  const playerHtml = formatBilibiliPlayer(extracted);
 
   const body = [
     frontmatter,
@@ -456,6 +458,8 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
     extracted.duration ? `时长：${formatDuration(extracted.duration)}` : "",
     transcriptSource ? `字幕/转录来源：${transcriptSource}` : "",
     "",
+    playerHtml,
+    playerHtml ? "" : "",
     summary || "暂无可用摘要。",
     "",
     "## 内容来源",
@@ -469,6 +473,58 @@ async function writeNote({ vaultPath, outputFolder, category, extracted, summary
 
   await fs.writeFile(absPath, body, "utf8");
   return relativePath;
+}
+
+function formatBilibiliPlayer(extracted) {
+  const embedUrl = buildBilibiliEmbedUrl(extracted);
+  if (!embedUrl) {
+    return "";
+  }
+  return [
+    "## 播放器",
+    "",
+    `<iframe src="${escapeHtmlAttr(embedUrl)}" width="100%" height="420" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"></iframe>`
+  ].join("\n");
+}
+
+function buildBilibiliEmbedUrl(extracted) {
+  const webpageUrl = extracted.webpageUrl || extracted.url || "";
+  const bvid = extractBvid(extracted.bvid) || extractBvid(webpageUrl);
+  const aid = extractAid(extracted.bvid) || extractAid(webpageUrl);
+  const params = new URLSearchParams();
+  if (bvid) {
+    params.set("bvid", bvid);
+  } else if (aid) {
+    params.set("aid", aid);
+  } else {
+    return "";
+  }
+  if (extracted.cid) {
+    params.set("cid", String(extracted.cid));
+  }
+  params.set("page", "1");
+  params.set("high_quality", "1");
+  params.set("danmaku", "0");
+  params.set("autoplay", "0");
+  return `https://player.bilibili.com/player.html?${params.toString()}`;
+}
+
+function extractBvid(value) {
+  const match = String(value || "").match(/BV[0-9A-Za-z]+/);
+  return match ? match[0] : "";
+}
+
+function extractAid(value) {
+  const match = String(value || "").match(/(?:^|\/|av)(\d{6,})/i);
+  return match ? match[1] : "";
+}
+
+function escapeHtmlAttr(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function findPythonWithYtDlp() {
