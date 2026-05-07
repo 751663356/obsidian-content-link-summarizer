@@ -327,7 +327,7 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
       messages: [
         {
           role: "system",
-          content: "你是一个严谨的中文视频学习笔记整理助手。把 B 站视频整理成适合 Obsidian 长期复习的 Markdown。不要编造字幕里没有的信息，不要输出逐字稿或大段原字幕。"
+          content: "你是一个严谨的中文视频学习笔记整理助手。把 B 站视频整理成适合 Obsidian 长期复习的 Markdown。先判断视频类型，再选择最适合的笔记模板。不要编造字幕里没有的信息，不要输出逐字稿或大段原字幕。"
         },
         {
           role: "user",
@@ -336,17 +336,14 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
             `链接：${extracted.webpageUrl || extracted.url}`,
             extracted.uploader ? `UP 主：${extracted.uploader}` : "",
             extracted.duration ? `时长：${formatDuration(extracted.duration)}` : "",
-            "请输出：",
-            "## 一句话总结",
-            "## 时间轴重点",
-            "## 核心要点",
-            "## 可执行清单",
-            "## 值得回看",
+            getAdaptiveSummaryPrompt(),
             "",
             "写作要求：",
             "- 时间轴重点只保留关键段落，不要逐句列字幕。",
             "- 核心要点要合并同类项，写成可复习的知识点。",
             "- 可执行清单必须是具体行动；没有就写“暂无明确行动”。",
+            "- 教程类视频必须写出可执行步骤；步骤缺失时说明“视频未提供完整步骤”。",
+            "- 如果预设类型都不合适，可以自己生成一个更合适的 Markdown 模板，但必须保持精炼。",
             "- 不要输出原始字幕或逐字稿。",
             "",
             "原始内容：",
@@ -361,6 +358,34 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
     throw new Error(data.error?.message || `HTTP ${response.status}`);
   }
   return data.choices?.[0]?.message?.content?.trim() || fallbackSummary(sourceText);
+}
+
+function getAdaptiveSummaryPrompt() {
+  return [
+    "请先判断视频类型，再按类型选择模板输出。",
+    "",
+    "必须先输出：",
+    "## 内容类型",
+    "用一句话说明你判断出的视频类型，例如：教程/操作演示、观点/认知、产品评测、课程/讲座、资讯解读、案例复盘、访谈/播客、灵感素材、其他。",
+    "",
+    "通用必备栏目：",
+    "## 一句话总结",
+    "## 时间轴重点",
+    "## 核心要点",
+    "## 可执行清单",
+    "## 值得回看",
+    "",
+    "按视频类型追加对应栏目：",
+    "- 教程/操作演示：追加 `## 适用场景`、`## 前置准备`、`## 具体步骤`、`## 注意事项`。",
+    "- 课程/讲座：追加 `## 知识框架`、`## 关键概念`、`## 练习/复盘问题`。",
+    "- 产品评测：追加 `## 适合谁`、`## 优点`、`## 缺点/风险`、`## 选择建议`。",
+    "- 观点/认知：追加 `## 核心观点`、`## 支撑理由`、`## 对我的启发`、`## 可验证问题`。",
+    "- 资讯解读：追加 `## 发生了什么`、`## 为什么重要`、`## 可能影响`。",
+    "- 案例复盘：追加 `## 背景`、`## 关键动作`、`## 结果`、`## 可借鉴经验`。",
+    "- 访谈/播客：追加 `## 嘉宾观点`、`## 关键故事`、`## 延伸思考`。",
+    "- 灵感素材：追加 `## 可收藏信息`、`## 可能用途`、`## 后续整理建议`。",
+    "- 其他：根据内容自己生成 2-4 个合适栏目。"
+  ].join("\n");
 }
 
 async function classifyCategory(sourceText, extracted, options) {

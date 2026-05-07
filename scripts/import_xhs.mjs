@@ -707,23 +707,21 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
       messages: [
         {
           role: "system",
-          content: "你是一个严谨的中文知识整理助手。把小红书内容整理成适合 Obsidian 长期复习的精炼 Markdown。不要编造原文没有的信息，不要输出逐字稿或大段原文。"
+          content: "你是一个严谨的中文知识整理助手。把小红书内容整理成适合 Obsidian 长期复习的精炼 Markdown。先判断内容类型，再选择最适合的笔记模板。不要编造原文没有的信息，不要输出逐字稿或大段原文。"
         },
         {
           role: "user",
           content: [
             `标题：${extracted.title || ""}`,
             `链接：${extracted.url}`,
-            "请输出：",
-            "## 一句话总结",
-            "## 核心要点",
-            "## 可执行清单",
-            "## 值得回看",
+            getAdaptiveSummaryPrompt(),
             "",
             "写作要求：",
             "- 只保留真正有用的信息，避免空泛评价。",
             "- 核心要点尽量合并同类项，不要机械复述。",
             "- 可执行清单必须是具体行动；没有就写“暂无明确行动”。",
+            "- 教程类内容必须写出可执行步骤；步骤缺失时说明“原内容未提供完整步骤”。",
+            "- 如果预设类型都不合适，可以自己生成一个更合适的 Markdown 模板，但必须保持精炼。",
             "- 不要输出原文逐字稿。",
             "",
             "原始内容：",
@@ -738,6 +736,32 @@ async function summarizeWithChatApi(sourceText, extracted, options) {
     throw new Error(data.error?.message || `HTTP ${response.status}`);
   }
   return data.choices?.[0]?.message?.content?.trim() || fallbackSummary(sourceText);
+}
+
+function getAdaptiveSummaryPrompt() {
+  return [
+    "请先判断内容类型，再按类型选择模板输出。",
+    "",
+    "必须先输出：",
+    "## 内容类型",
+    "用一句话说明你判断出的类型，例如：教程/操作演示、观点/认知、清单/攻略、评测/推荐、案例复盘、生活经验/避坑、资料/灵感、其他。",
+    "",
+    "通用必备栏目：",
+    "## 一句话总结",
+    "## 核心要点",
+    "## 可执行清单",
+    "## 值得回看",
+    "",
+    "按内容类型追加对应栏目：",
+    "- 教程/操作演示：追加 `## 适用场景`、`## 前置准备`、`## 具体步骤`、`## 注意事项`。",
+    "- 清单/攻略：追加 `## 清单整理`、`## 优先级建议`、`## 使用方法`。",
+    "- 评测/推荐：追加 `## 适合谁`、`## 优点`、`## 缺点/风险`、`## 选择建议`。",
+    "- 观点/认知：追加 `## 核心观点`、`## 支撑理由`、`## 对我的启发`、`## 可验证问题`。",
+    "- 案例复盘：追加 `## 背景`、`## 关键动作`、`## 结果`、`## 可借鉴经验`。",
+    "- 生活经验/避坑：追加 `## 适用人群`、`## 避坑点`、`## 建议做法`。",
+    "- 资料/灵感：追加 `## 可收藏信息`、`## 可能用途`、`## 后续整理建议`。",
+    "- 其他：根据内容自己生成 2-4 个合适栏目。"
+  ].join("\n");
 }
 
 async function classifyCategory(sourceText, extracted, options) {
